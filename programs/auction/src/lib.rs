@@ -1,7 +1,7 @@
 use anchor_lang::{
     prelude::*,
-    // solana_program::clock::UnixTimestamp,
-    system_program::{transfer, Transfer}
+    solana_program::clock::UnixTimestamp,
+    system_program::{transfer, Transfer},
 };
 
 use error::AuctionError;
@@ -12,7 +12,7 @@ pub mod error;
 pub mod state;
 pub mod validation;
 
-declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
+declare_id!("EVKc3smJPUvmwxRvX6ycmyNMoSssrBks4EEiFky3DmRK");
 
 #[program]
 pub mod simple_auction {
@@ -103,6 +103,7 @@ pub struct Initialize<'info> {
     )]
     pub state: Account<'info, Auction>,
     /// Account which holds tokens bidded by biders
+    /// CHECK:
     // #[account(...)]
     pub treasury: AccountInfo<'info>,
     /// Seller or initializer
@@ -119,6 +120,7 @@ pub struct AuctionStart<'info> {
     #[account(mut)]
     pub state: Account<'info, Auction>,
     /// Account which holds tokens bidded by biders
+    /// CHECK:
     // #[account(...)]
     #[account(mut, constraint = *treasury.key == state.treasury)]
     pub treasury: AccountInfo<'info>,
