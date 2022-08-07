@@ -3,11 +3,13 @@ import { Program } from "@project-serum/anchor";
 import { SimpleAuction } from "../target/types/simple_auction";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { expect as chaiExpect, use } from "chai";
+// import chai from 'chai';
 import chaiAsPromised from "chai-as-promised";
 import { before } from "mocha";
 
 const expect = chaiExpect;
-use(chaiAsPromised);
+chai.use(chaiAsPromised);
+// const expect = chai.expect;
 
 const AMOUNT = 100 * LAMPORTS_PER_SOL;
 
@@ -16,7 +18,9 @@ describe("Auction", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.Provider.env());
 
-  const program = anchor.workspace.Auction as Program<SimpleAuction>;
+  const provider = anchor.getProvider();
+
+  const program = anchor.workspace.Auction as anchor.Program<SimpleAuction>;
 
   const state = anchor.web3.Keypair.generate();
   const treasury = anchor.web3.Keypair.generate();
@@ -79,7 +83,7 @@ describe("Auction", () => {
 
   describe("Initialization of Simple Auction", () => {
     it("Cannot initialize with old auction date!", () =>
-      expect(
+      await expect(
         program.rpc.initialize(
           new anchor.BN(new Date("2020-01-01").getTime() / 1000),
           {
@@ -243,8 +247,8 @@ describe("Auction", () => {
       })
     ).to.be.rejectedWith(/Auction is active/));
 
-  it("Initializer cannot receive money before the end of auction", () =>
-    expect(
+  it("Initializer cannot receive money before the end of auction", async () =>
+    await expect(
       program.rpc.endAuction({
         accounts: {
           state: state.publicKey,
@@ -254,11 +258,11 @@ describe("Auction", () => {
         },
         signers: [treasury],
       })
-    ).to.be.rejectedWith(/Action is active/));
+    ).to.be.rejectedWith(/Auction is active/));
 
   it("Cannot bid when auction is over!", async () => {
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    return expect(
+    return await expect(
       program.rpc.bid(new anchor.BN(LAMPORTS_PER_SOL), {
         accounts: {
           systemProgram: SystemProgram.programId,
@@ -270,107 +274,105 @@ describe("Auction", () => {
         signers: [nonParticipatingUser],
       })
     ).to.be.rejectedWith(/Auction is inactive/);
+    // });
+
+    it("Treasury should be full of money", () =>
+      validateBalance(
+        treasury,
+        WINNING_AMOUNT + INITIALIZER_AMOUNT + USER_AMOUNT,
+        true
+      ));
   });
 
-  it("Treasury should be full of money", () =>
-    validateBalance(
-      treasury,
-      WINNING_AMOUNT + INITIALIZER_AMOUNT + USER_AMOUNT,
-      true
-    ));
-});
+  describe("The simple auction ends", () => {
+    before(() => new Promise((resolve) => setTimeout(resolve, 1000)));
 
-describe("The simple auction ends", () => {
-  before(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+    it("Users cannot end the auction", () =>
+      expect(
+        program.rpc.endAuction({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            state: state.publicKey,
 
-  it("Users cannot end the auction", () =>
-    expect(program.rpc.endAuction({
+            initializer: user.publicKey,
+          },
+          signers: [user, treasury],
+        })
+      ).to.be.rejected);
+
+    it("Cannot refund before the seller receive money!", () =>
+      expect(
+        program.rpc.refund({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            state: state.publicKey,
+            bidder: user.publicKey,
+            bidInfo: userBidInfo,
+          },
+          signers: [user, treasury],
+        })
+      ).to.be.rejectedWith(/Auction has not ended yet/));
+
+    it("Initializer can receive money but not twice!", async () => {
+      const balance = await getBalance(provider.wallet as any);
+      const treasuryBalance = await getBalance(treasury);
+      const tx = await program.rpc.endAuction({
         accounts: {
-          systemProgram: SystemProgram.programId,
-          treasury: treasury.publicKey,
           state: state.publicKey,
-          bidder: user.publicKey,
-          bidInfo: userBidInfo,
-        },
-        signers: [user, treasury],
-      })
-    ).to.be.rejectedWith(/Auction has not ended yet/));
-
-  it("Initializer can receive money but not twice!", async () => {
-    const balance = await getBalance(provider.wallet as any);
-    const treasuryBalance = await getBalance(treasury);
-    const tx = await program.rpc.endAuction({
-      accounts: {
-        state: state.publicKey,
-        treasury: treasury.publicKey,
-        initializer: provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      },
-
-      signers: [treasury],
-    });
-
-    expect(tx).not.to.be.empty;
-    const updatedBalance = await getBalance(provider.wallet as any);
-    const updatedTreasuryBalance = await getBalance(treasury);
-    expect(balance).to.be.lessThan(updatedBalance);
-    expect(balance).to.be.greaterThanOrEqual(
-      updatedBalance - WINNING_AMOUNT - LAMPORTS_PER_SOL
-    );
-    expect(treasuryBalance).to.be.eq(updatedTreasuryBalance + WINNING_AMOUNT);
-
-    return expect(
-      program.rpc.endAuction({
-        accounts: {
-          systemProgram: SystemProgram.programId,
           treasury: treasury.publicKey,
           initializer: provider.wallet.publicKey,
-          state = state.publicKey,
-        },
-        signers: [treasury],
-      })
-    ).to.be.rejectedWith(/Auction already ended/);
-  });
-});
-
-describe("Refunding of users after auction", () => {
-  before(() => new Promise((resolve) => setTimeout(resolve, 1000)));
-
-  it("Cannot bid after bidding period ends!", () =>
-    expect(
-      program.rpc.bid(new anchor.BN(INITIALIZER_AMOUNT), {
-        accounts: {
-          state: state.publicKey,
-          bidInfo: nonPartBidInfo,
-          treasury: treasury.publicKey,
-          bidder: nonParticipatingUser.publicKey,
           systemProgram: SystemProgram.programId,
         },
-        signers: [nonParticipatingUser],
-      })
-    ).to.be.rejectedWith(/Auction is inactive./));
 
-  it("User can get refund but not twice!", async () => {
-    const balance = await getBalance(user);
-    const treasuryBalance = await getBalance(treasury);
-    const tx = await program.rpc.refund({
-      accounts: {
-        systemProgram: SystemProgram.programId,
-        treasury: treasury.publicKey,
-        bidInfo: userBidInfo,
-        bidder: user.publicKey,
-      },
+        signers: [treasury],
+      });
 
-      signers: [treasury, user],
+      expect(tx).not.to.be.empty;
+      const updatedBalance = await getBalance(provider.wallet as any);
+      const updatedTreasuryBalance = await getBalance(treasury);
+      expect(balance).to.be.lessThan(updatedBalance);
+      expect(balance).to.be.greaterThanOrEqual(
+        updatedBalance - WINNING_AMOUNT - LAMPORTS_PER_SOL
+      );
+      expect(treasuryBalance).to.be.eq(updatedTreasuryBalance + WINNING_AMOUNT);
+
+      return expect(
+        program.rpc.endAuction({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            initializer: provider.wallet.publicKey,
+            state: state.publicKey,
+          },
+          signers: [treasury],
+        })
+      ).to.be.rejectedWith(/Auction already ended/);
     });
+  });
 
-    expect(tx).not.be.empty;
-    const updatedBalance = await getBalance(user);
-    const updatedTreasuryBalance = await getBalance(treasury);
-    expect(balance).to.be.lessThan(updatedBalance);
-    expect(treasuryBalance).to.eq(updatedTreasuryBalance + USER_AMOUNT);
-    return expect(
-      program.rpc.refund({
+  describe("Refunding of users after auction", () => {
+    before(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+
+    it("Cannot bid after bidding period ends!", () =>
+      expect(
+        program.rpc.bid(new anchor.BN(INITIALIZER_AMOUNT), {
+          accounts: {
+            state: state.publicKey,
+            bidInfo: nonPartBidInfo,
+            treasury: treasury.publicKey,
+            bidder: nonParticipatingUser.publicKey,
+            systemProgram: SystemProgram.programId,
+          },
+          signers: [nonParticipatingUser],
+        })
+      ).to.be.rejectedWith(/Auction is inactive./));
+
+    it("User can get refund but not twice!", async () => {
+      const balance = await getBalance(user);
+      const treasuryBalance = await getBalance(treasury);
+      const tx = await program.rpc.refund({
         accounts: {
           systemProgram: SystemProgram.programId,
           treasury: treasury.publicKey,
@@ -379,61 +381,81 @@ describe("Refunding of users after auction", () => {
           bidder: user.publicKey,
         },
 
-        signers: [user, treasury],
-      })
-    ).to.be.rejected;
-  });
+        signers: [treasury, user],
+      });
 
-  it("Initializer can get refund!", async () => {
-    const balance = await getBalance(provider.wallet as any);
-    const treasuryBalance = await getBalance(treasury);
-    const tx = await program.rpc.refund({
-      accounts: {
-        systemProgram: SystemProgram.programId,
-        treasury: treasury.publicKey,
-        state: state.publicKey,
-        bidder: provider.wallet.publicKey,
-        bidInfo: initializerBidInfo,
-      },
+      expect(tx).not.be.empty;
+      const updatedBalance = await getBalance(user);
+      const updatedTreasuryBalance = await getBalance(treasury);
+      expect(balance).to.be.lessThan(updatedBalance);
+      expect(treasuryBalance).to.eq(updatedTreasuryBalance + USER_AMOUNT);
+      return expect(
+        program.rpc.refund({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            state: state.publicKey,
+            bidInfo: userBidInfo,
+            bidder: user.publicKey,
+          },
 
-      signers: [treasury],
+          signers: [user, treasury],
+        })
+      ).to.be.rejected;
     });
 
-    expect(tx).not.to.be.empty;
-    const updatedBalance = await getBalance(provider.wallet as any);
-    const updatedTreasuryBalance = await getBalance(treasury);
-    expect(balance).to.be.lessThan(updatedBalance);
-    expect(treasuryBalance).to.eq(updatedTreasuryBalance + INITIALIZER_AMOUNT);
+    it("Initializer can get refund!", async () => {
+      const balance = await getBalance(provider.wallet as any);
+      const treasuryBalance = await getBalance(treasury);
+      const tx = await program.rpc.refund({
+        accounts: {
+          systemProgram: SystemProgram.programId,
+          treasury: treasury.publicKey,
+          state: state.publicKey,
+          bidder: provider.wallet.publicKey,
+          bidInfo: initializerBidInfo,
+        },
+
+        signers: [treasury],
+      });
+
+      expect(tx).not.to.be.empty;
+      const updatedBalance = await getBalance(provider.wallet as any);
+      const updatedTreasuryBalance = await getBalance(treasury);
+      expect(balance).to.be.lessThan(updatedBalance);
+      expect(treasuryBalance).to.eq(
+        updatedTreasuryBalance + INITIALIZER_AMOUNT
+      );
+    });
+
+    it("User with the highest bid cannot refund!", () =>
+      expect(
+        program.rpc.refund({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            state: state.publicKey,
+            bidder: winner.publicKey,
+            bidInfo: winnerBidInfo,
+          },
+          signers: [treasury, winner],
+        })
+      ).to.be.rejected);
+
+    it("Non participating user cannot refund!", () =>
+      expect(
+        program.rpc.refund({
+          accounts: {
+            systemProgram: SystemProgram.programId,
+            treasury: treasury.publicKey,
+            bidInfo: nonPartBidInfo,
+            state: state.publicKey,
+            bidder: nonParticipatingUser.publicKey,
+          },
+          signers: [treasury, nonParticipatingUser],
+        })
+      ).to.be.rejected);
+
+    it("Treasury should be empty!", () => validateBalance(treasury, 0, true));
   });
-
-  it("User with the highest bid cannot refund!", () =>
-    expect(
-      program.rpc.refund({
-        accounts: {
-          systemProgram: SystemProgram.programId,
-          treasury: treasury.publicKey,
-          state: state.publicKey,
-          bidder: winner.publicKey,
-          bidInfo: winnerBidInfo,
-        },
-        signers: [treasury, winner],
-      })
-    ).to.be.rejected);
-
-  it("Non participating user cannot refund!", () =>
-    expect(
-      program.rpc.refund({
-        accounts: {
-          systemProgram: SystemProgram.programId,
-          treasury: treasury.publicKey,
-          bidInfo: nonPartBidInfo,
-          state: state.publicKey,
-          bidder: nonParticipatingUser.publicKey,
-        },
-        signers: [treasury, nonParticipatingUser],
-      })
-    ).to.be.rejected);
-
-  it("Treasury should be empty!", () => validateBalance(treasury, 0, true));
-});
 });
