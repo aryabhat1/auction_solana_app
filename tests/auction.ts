@@ -1,9 +1,8 @@
 import * as anchor from "@project-serum/anchor";
-import { Program } from "@project-serum/anchor";
 import { SimpleAuction } from "../target/types/simple_auction";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { expect as chaiExpect, use } from "chai";
-// import chai from 'chai';
+import chai from "chai";
 import chaiAsPromised from "chai-as-promised";
 import { before } from "mocha";
 
@@ -13,14 +12,15 @@ chai.use(chaiAsPromised);
 
 const AMOUNT = 100 * LAMPORTS_PER_SOL;
 
-describe("Auction", () => {
+describe("auction test", () => {
   let winnerBidInfo, userBidInfo, initializerBidInfo, nonPartBidInfo;
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.Provider.env());
 
   const provider = anchor.getProvider();
 
-  const program = anchor.workspace.Auction as anchor.Program<SimpleAuction>;
+  const program = anchor.workspace
+    .SimpleAuction as anchor.Program<SimpleAuction>;
 
   const state = anchor.web3.Keypair.generate();
   const treasury = anchor.web3.Keypair.generate();
@@ -81,11 +81,11 @@ describe("Auction", () => {
     ])
   );
 
-  describe("Initialization of Simple Auction", () => {
-    it("Cannot initialize with old auction date!", () =>
+  describe("Initialization of Simple Auction", async () => {
+    it("Cannot initialize with old auction date!", async () =>
       await expect(
         program.rpc.initialize(
-          new anchor.BN(new Date("2020-01-01").getTime() / 1000),
+          new anchor.BN(new Date("2022-01-01").getTime() / 1000),
           {
             accounts: {
               systemProgram: SystemProgram.programId,

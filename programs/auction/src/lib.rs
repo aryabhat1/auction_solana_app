@@ -12,7 +12,7 @@ pub mod error;
 pub mod state;
 pub mod validation;
 
-declare_id!("EVKc3smJPUvmwxRvX6ycmyNMoSssrBks4EEiFky3DmRK");
+declare_id!("GJRJuXdZnN3vyMrLjGd64dmbZvG25phFLrQqkcQoZAMm");
 
 #[program]
 pub mod simple_auction {
